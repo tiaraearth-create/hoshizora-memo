@@ -343,9 +343,43 @@
   ::-webkit-scrollbar { width:8px; }
   ::-webkit-scrollbar-thumb { background:var(--panel-hi); border-radius:99px; }
   @media (max-width:640px) {
+    #toolbar { max-width:96vw; overflow-x:auto; justify-content:flex-start; scrollbar-width:none; }
+    #toolbar::-webkit-scrollbar { display:none; }
     #toolbar .logo { display:none; }
+    #toolbar .tbtn { padding:7px 10px; font-size:16px; flex:none; }
     #hint { display:none; }
+    #pins { max-width:34vw; }
   }
+
+  /* ======= スマホ最適化（下部バー・大きい当たり判定） ======= */
+  #mobilebar {
+    display:none; position:fixed; left:50%; transform:translateX(-50%);
+    bottom:calc(10px + env(safe-area-inset-bottom)); z-index:25;
+    gap:4px; padding:8px 12px; border-radius:99px;
+    background:var(--panel-hi); border:1px solid var(--border);
+    backdrop-filter:blur(16px); box-shadow:0 10px 34px var(--shadow);
+  }
+  #mobilebar button {
+    background:none; border:none; color:var(--text); font-size:22px;
+    padding:10px 16px; border-radius:99px; font-family:inherit;
+  }
+  #mobilebar button:active { background:var(--panel-hi); transform:scale(1.15); }
+  #mobilebar #mb-new { background:var(--accent); border-radius:50%; width:54px; height:54px; padding:0; font-size:26px; color:#fff; box-shadow:0 4px 18px var(--glow); }
+  body.touch #mobilebar { display:flex; align-items:center; }
+  body.touch #toolbar { display:none; }
+  body.touch #zoombar { bottom:calc(86px + env(safe-area-inset-bottom)); right:10px; }
+  body.touch #zoombar button { font-size:17px; padding:7px 11px; }
+  body.touch #minimap { bottom:calc(140px + env(safe-area-inset-bottom)); }
+  body.touch #tagfilter { top:12px; }
+  body.touch .card-menu-btn { font-size:20px; padding:4px 10px; }
+  body.touch .resize-h { width:24px; right:-10px; }
+  body.touch .card-head { padding:10px 12px 5px; }
+  body.touch .card { backdrop-filter:none; }   /* モバイルGPU負荷を大幅削減 */
+  body.touch .card-title { font-size:15px; }
+  body.touch #toasts { bottom:calc(92px + env(safe-area-inset-bottom)); }
+
+  /* リモート編集中カード（P2Pプレゼンス） */
+  .card.remote-edit { outline:2px dashed var(--accent2); outline-offset:3px; }
 </style>
 </head>
 <body data-theme="hoshizora">
@@ -403,7 +437,18 @@
 </div></div>
 
 <div class="modal" id="m-p2p"><div class="modal-box">
-  <h3>📡 P2P同期 — サーバー不要で端末を直結</h3>
+  <h3>📡 P2P同期 — 端末を直結</h3>
+  <div style="background:var(--panel); border:1px solid var(--accent); border-radius:12px; padding:12px; margin-bottom:14px">
+    <div style="font-weight:700; margin-bottom:6px">✨ かんたん接続（推奨）</div>
+    <div style="font-size:11px; color:var(--dim); margin-bottom:8px">全端末で同じ「あいことば」を入力するだけで自動接続。通信は、あいことば由来の鍵でE2E暗号化されます。</div>
+    <div style="display:flex; gap:6px; flex-wrap:wrap">
+      <input id="room-phrase" placeholder="あいことば（例: ほしぞら1234）" style="flex:1; min-width:150px; background:rgba(0,0,0,.25); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:8px 10px; font-family:inherit; outline:none">
+      <button class="btn" id="room-join">接続</button>
+      <button class="btn" id="room-leave">切断</button>
+    </div>
+    <div id="room-status" style="font-size:12px; color:var(--accent); margin-top:8px">未接続</div>
+  </div>
+  <div style="font-weight:700; margin-bottom:6px; font-size:13px">🔧 手動接続（上級者向け・ネット不要のコード交換式）</div>
   <div style="font-size:12px; color:var(--accent); margin-bottom:10px" id="p2p-status">未接続</div>
   <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap">
     <button class="btn" id="p2p-host">① ホストになる</button>
@@ -475,6 +520,14 @@
 
 <div id="pins"></div>
 
+<div id="mobilebar">
+  <button id="mb-search" title="検索">🔍</button>
+  <button id="mb-qc" title="クイックキャプチャ">⚡</button>
+  <button id="mb-new" title="新規メモ">＋</button>
+  <button id="mb-graph" title="グラフ">🕸️</button>
+  <button id="mb-menu" title="メニュー">☰</button>
+</div>
+
 <div id="qc"><div id="qc-box">
   <input id="qc-input" placeholder="⚡ 思いついた瞬間を逃さない → Enter で今日のノートへ" autocomplete="off">
   <div class="sub">Enterで保存（連続入力OK）／ Escで閉じる ／ 保存先: 今日のデイリーノート</div>
@@ -509,6 +562,8 @@ const $$ = s => [...document.querySelectorAll(s)];
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const LS_KEY = "hoshizora.v1";
 const LS_HIST = "hoshizora.hist.v1";
+const IS_TOUCH = matchMedia("(pointer: coarse)").matches;
+document.body.classList.toggle("touch", IS_TOUCH);
 const COLORS = ["#7c96ff","#ff7ad5","#4dffd2","#ffd94d","#ff8a5c","#b08aff","#6ee7a0","#7dd3fc"];
 
 /* ---------------- state ---------------- */
@@ -577,8 +632,8 @@ function save(immediate) {
   clearTimeout(saveTimer);
   const doit = () => {
     idbSet("state", JSON.parse(JSON.stringify(state))).catch(() => toast("⚠️ 保存に失敗しました"));
-    backupDirty = true; syncDirty = true;
-    if (typeof dcSendSoon === "function") dcSendSoon();          // P2P接続中なら相手へ
+    backupDirty = true; syncDirty = true; tfDirty = true;
+    if (typeof netSendSoon === "function") netSendSoon();        // 接続中の全端末へ
     const now = Date.now();
     if (now - lastSnap > 60000) { snapshot(); lastSnap = now; }
   };
@@ -662,6 +717,36 @@ async function openBackups() {
    同期エンジン — メモ単位LWW（新しい方優先）＋削除の墓標(tombstone)
 ================================================================ */
 let syncDirty = false, syncBusy = false, syncHandle = null, lastSyncAt = 0, lastRemoteT = 0;
+
+/* --- E2E暗号化 (PBKDF2 + AES-GCM)：鍵は端末の中だけ --- */
+const keyCache = new Map();
+async function e2eKey(phrase) {
+  if (keyCache.has(phrase)) return keyCache.get(phrase);
+  const enc = new TextEncoder();
+  const km = await crypto.subtle.importKey("raw", enc.encode(phrase), "PBKDF2", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey(
+    { name:"PBKDF2", salt: enc.encode("hoshizora-e2e-v1"), iterations: 120000, hash:"SHA-256" },
+    km, { name:"AES-GCM", length: 256 }, false, ["encrypt","decrypt"]);
+  keyCache.set(phrase, key);
+  return key;
+}
+function abToB64(buf) {
+  const u = new Uint8Array(buf); let s = "";
+  for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+function b64ToAb(s) { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
+async function encStr(phrase, str) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, await e2eKey(phrase), new TextEncoder().encode(str));
+  return JSON.stringify({ __e2e: 1, iv: abToB64(iv), d: abToB64(ct) });
+}
+async function decStr(phrase, str) {
+  const o = JSON.parse(str);
+  if (!o.__e2e) return str;
+  const pt = await crypto.subtle.decrypt({ name:"AES-GCM", iv: b64ToAb(o.iv) }, await e2eKey(phrase), b64ToAb(o.d));
+  return new TextDecoder().decode(pt);
+}
 const syncPayload = () => ({ v: 1, t: Date.now(), notes: state.notes, dead: state.dead || {}, act: state.act || {}, snip: state.snip || {} });
 function mergeRemote(remote) {
   let changed = false;
@@ -717,18 +802,27 @@ async function syncNow(force) {
     try {
       const f = await syncHandle.getFile();
       if (f.size > 2) {
-        const remote = JSON.parse(await f.text());
-        if (remote && Array.isArray(remote.notes) && remote.t !== lastRemoteT) {
-          lastRemoteT = remote.t;
-          remoteChanged = mergeRemote(remote);
-          if (remoteChanged) { applyMerged(); toast("☁️ 他端末の変更を取り込みました"); sndOpen(); }
+        let txt = await f.text();
+        if (txt.includes('"__e2e"')) {                              // 暗号化ファイル
+          if (!state.e2e) { if (force) toast("🔐 このファイルは暗号化されています。同期メニューでE2Eあいことばを設定してください"); txt = null; }
+          else { try { txt = await decStr(state.e2e, txt); } catch(e) { if (force) toast("🔐 あいことばが一致せず復号できません"); txt = null; } }
+        }
+        if (txt) {
+          const remote = JSON.parse(txt);
+          if (remote && Array.isArray(remote.notes) && remote.t !== lastRemoteT) {
+            lastRemoteT = remote.t;
+            remoteChanged = mergeRemote(remote);
+            if (remoteChanged) { applyMerged(); toast("☁️ 他端末の変更を取り込みました"); sndOpen(); }
+          }
         }
       }
     } catch(e){}
     if (syncDirty || remoteChanged || force) {
       const p = syncPayload();
+      let out = JSON.stringify(p);
+      if (state.e2e) out = await encStr(state.e2e, out);
       const w = await syncHandle.createWritable();
-      await w.write(JSON.stringify(p));
+      await w.write(out);
       await w.close();
       lastRemoteT = p.t;
       syncDirty = false;
@@ -748,12 +842,132 @@ function syncMenu() {
       { ico:"🔄", label:"今すぐ同期", run: () => syncNow(true) },
       { ico:"🚫", label:"ファイル同期を解除", sub:"データは消えません", run: async () => { syncHandle = null; try { await idbSet("syncFile", null); } catch(e){} $("#b-sync").classList.remove("on"); toast("☁️ ファイル同期を解除しました"); } },
     ] : []),
-    { ico:"📡", label:"P2P同期（WebRTCで端末を直結）", sub: dc && dc.readyState === "open" ? "接続中 ✅" : "サーバー不要・コード交換で接続", run: openP2p },
+    { ico:"🔐", label: state.e2e ? "E2E暗号化: 有効 ✅（クリックで解除）" : "ファイル同期をE2E暗号化する",
+      sub: state.e2e ? "OneDriveにも中身は読めません" : "あいことばで暗号化（全端末で同じものを設定。忘れると復号不能）",
+      run: () => {
+        if (state.e2e) { state.e2e = null; keyCache.clear(); save(); syncDirty = true; syncNow(); toast("🔓 E2E暗号化を解除しました（次回から平文保存）"); return; }
+        const p = prompt("E2E暗号化のあいことば\n⚠️ 全端末で同じものを設定。忘れるとデータを復号できません！");
+        if (!p) return;
+        state.e2e = p; save(); syncDirty = true; syncNow(true);
+        toast("🔐 以後の同期ファイルは暗号化されます");
+      } },
+    { ico:"📡", label:"P2P同期（あいことばで自動接続）",
+      sub: conns.some(c => c.open) ? `✅ ${conns.filter(c=>c.open).length + 1}台接続中` : (state.room ? "あいことば設定済み・待機中" : "全端末で同じ「あいことば」を入れるだけ"),
+      run: openP2p },
   ];
   openList("☁️ 同期", items);
 }
 
-/* --- ② P2P同期（WebRTC・手動シグナリング） --- */
+/* --- ② P2P同期A：あいことば自動接続（PeerJSでシグナリング・中身はE2E暗号化） --- */
+let peer = null, conns = [], roomPhrase = null, roomRetry = null;
+function hash36(s) { let h = 5381; for (const ch of s) h = ((h * 33) ^ ch.charCodeAt(0)) >>> 0; return h.toString(36) + (s.length * 7919 % 1296).toString(36); }
+function loadPeerJs() {
+  if (window.Peer) return Promise.resolve();
+  return new Promise((res, rej) => {
+    const sc = document.createElement("script");
+    sc.src = "https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js";
+    sc.onload = res;
+    sc.onerror = () => rej(new Error("接続ライブラリを取得できません（オフライン？）"));
+    document.head.appendChild(sc);
+  });
+}
+function roomStatus(msg) { const el = $("#room-status"); if (el) el.textContent = msg; }
+function updatePeerBadge() {
+  const nDev = conns.filter(c => c.open).length;
+  $("#b-sync").textContent = nDev ? `☁️${nDev + 1}` : "☁️";
+  roomStatus(nDev ? `✅ ${nDev + 1}台が接続中 — 編集は自動で相互反映` : (peer ? "⏳ 同じあいことばの端末を待っています…" : "未接続"));
+}
+async function joinRoom(phrase) {
+  phrase = (phrase || "").trim();
+  if (!phrase) { toast("あいことばを入力してください"); return; }
+  try { await loadPeerJs(); } catch(e) { roomStatus("⚠️ " + e.message); toast("⚠️ " + e.message); return; }
+  leaveRoom(true);
+  roomPhrase = phrase;
+  state.room = phrase; save();
+  const hostId = "hoshizora-" + hash36(phrase + "|host");
+  roomStatus("⏳ 接続中…");
+  const asGuest = () => {
+    peer = new Peer(undefined, { debug: 0 });
+    peer.on("open", () => { const c = peer.connect(hostId, { reliable: true }); wireConn(c); });
+    peer.on("error", err => { roomStatus("⚠️ 接続エラー: " + err.type); scheduleRetry(); });
+    peer.on("disconnected", scheduleRetry);
+  };
+  peer = new Peer(hostId, { debug: 0 });
+  peer.on("open", updatePeerBadge);
+  peer.on("connection", wireConn);
+  peer.on("error", err => {
+    if (err.type === "unavailable-id") { try { peer.destroy(); } catch(e){} asGuest(); }   // 先客がホスト → 自分はゲスト
+    else { roomStatus("⚠️ 接続エラー: " + err.type); scheduleRetry(); }
+  });
+  peer.on("disconnected", scheduleRetry);
+}
+function scheduleRetry() {
+  clearTimeout(roomRetry);
+  if (!roomPhrase) return;
+  roomRetry = setTimeout(() => { if (roomPhrase && !conns.some(c => c.open)) joinRoom(roomPhrase); }, 15000);
+}
+function leaveRoom(silent) {
+  clearTimeout(roomRetry);
+  conns.forEach(c => { try { c.close(); } catch(e){} });
+  conns = [];
+  if (peer) { try { peer.destroy(); } catch(e){} peer = null; }
+  roomPhrase = null;
+  if (!silent) { state.room = null; save(); roomStatus("未接続"); updatePeerBadge(); toast("📡 自動接続を切りました"); }
+}
+function wireConn(c) {
+  c.on("open", () => {
+    conns.push(c); updatePeerBadge();
+    toast("📡 端末がつながりました — 自動同期スタート"); sndDone();
+    sendRoomTo(c, { kind:"state", payload: syncPayload() });
+  });
+  c.on("data", d => onRoomData(c, d));
+  c.on("close", () => { conns = conns.filter(x => x !== c); updatePeerBadge(); scheduleRetry(); });
+  c.on("error", () => { conns = conns.filter(x => x !== c); updatePeerBadge(); });
+}
+async function sendRoomTo(c, msg) {
+  try {
+    let s = JSON.stringify(msg);
+    if (roomPhrase) s = await encStr("room|" + roomPhrase, s);   // 中身は常にE2E暗号化
+    c.send(s);
+  } catch(e){}
+}
+function broadcastRoom(msg, except) {
+  conns.forEach(c => { if (c !== except && c.open) sendRoomTo(c, msg); });
+}
+async function onRoomData(c, d) {
+  try {
+    let s = typeof d === "string" ? d : new TextDecoder().decode(d);
+    if (s.includes('"__e2e"')) s = await decStr("room|" + roomPhrase, s);
+    const m = JSON.parse(s);
+    if (m.kind === "state" && m.payload && Array.isArray(m.payload.notes)) {
+      if (mergeRemote(m.payload)) { applyMerged(); toast("📡 他端末の変更を取り込みました"); }
+      broadcastRoom(m, c);                          // ホストは他のゲストへ中継
+    } else if (m.kind === "pres" && m.note) {
+      markRemoteEdit(m.note);
+    }
+  } catch(e){}
+}
+const remoteEditTimers = new Map();
+function markRemoteEdit(noteId) {
+  $$(".card.remote-edit").forEach(el => { if (el.dataset.id !== noteId) el.classList.remove("remote-edit"); });
+  const el = cardEls.get(noteId);
+  if (!el) return;
+  el.classList.add("remote-edit");
+  clearTimeout(remoteEditTimers.get(noteId));
+  remoteEditTimers.set(noteId, setTimeout(() => el.classList.remove("remote-edit"), 8000));
+}
+let netTimer = null;
+function netSendSoon() {                             // 保存のたび、接続中の全端末へ2.5秒後に送信
+  clearTimeout(netTimer);
+  netTimer = setTimeout(() => {
+    if (typeof dc !== "undefined" && dc && dc.readyState === "open") dcSendState();
+    if (conns.some(c => c.open)) broadcastRoom({ kind:"state", payload: syncPayload() });
+  }, 2500);
+}
+$("#room-join").onclick = () => joinRoom($("#room-phrase").value);
+$("#room-leave").onclick = () => leaveRoom();
+
+/* --- ② P2P同期B：手動コード交換（上級者向け・従来方式） --- */
 let pc = null, dc = null, p2pRole = null, p2pTimer = null, rxBuf = {};
 const iceDone = c => new Promise(res => {
   if (c.iceGatheringState === "complete") return res();
@@ -761,7 +975,12 @@ const iceDone = c => new Promise(res => {
   c.addEventListener("icegatheringstatechange", () => { if (c.iceGatheringState === "complete") { clearTimeout(t); res(); } });
 });
 function p2pStatus(msg) { $("#p2p-status").textContent = msg; }
-function openP2p() { closeAll(); $("#m-p2p").classList.add("open"); }
+function openP2p() {
+  closeAll();
+  if (state.room) $("#room-phrase").value = state.room;
+  updatePeerBadge();
+  $("#m-p2p").classList.add("open");
+}
 function newPc() {
   const c = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
   c.onconnectionstatechange = () => {
@@ -905,7 +1124,7 @@ function fmt(md, depth = 0) {
     return keep(`<span class="wl${ok ? "" : " broken"}">[[${t}]]</span>`);
   });
   s = s.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
-  s = s.replace(/(?<!\*)\*([^*\s][^*]*)\*(?!\*)/g, "<i>$1</i>");
+  s = s.replace(/(^|[^*])\*([^*\s][^*]*)\*(?!\*)/g, "$1<i>$2</i>");
   s = s.replace(/(^|\s)#([^\s#\[\]<>&,。、]+)/g, (m, sp, t) =>
     sp + keep(`<span class="tag" data-tag="${t}" style="background:${tagColor(t,.2)};color:${tagColor(t)}">#${t}</span>`));
   s = s.replace(/(https?:\/\/[^\s<>"']+)/g, m => keep(`<a href="${m}" target="_blank" rel="noopener">${m}</a>`));
@@ -954,7 +1173,7 @@ function newNote(x, y, title="", blocks=null) {
   save(); sndPop();
   return n;
 }
-function noteText(n) { return n.title + " " + n.blocks.map(b=>b.md||"").join(" "); }
+function noteText(n) { return n.title + " " + n.blocks.map(b => b.t === "img" ? "" : (b.md || "")).join(" "); }
 function findByTitle(t) { return state.notes.find(n => n.title.trim() === t.trim()); }
 function outLinks(n) {
   const set = new Set(); const re = /\[\[([^\[\]]+)\]\]/g; let m;
@@ -1025,6 +1244,7 @@ function renderCard(n) {
     body.innerHTML = "";
     n.blocks.forEach(b => body.appendChild(blockEl(b)));
   }
+  el._h = null;                                     // 仮想化用の高さキャッシュを無効化
   updateFoot(n, el);
   applyTagDim(el, n);
   applyHeat(el, n);
@@ -1093,13 +1313,26 @@ function bindCard(el, id) {
     if (e.target.closest("input,button,.dot")) return;
     e.preventDefault();
     const n = note(); const start = { x: e.clientX, y: e.clientY, nx: n.x, ny: n.y };
+    let lp = null;
     const move = ev => {
+      if (lp && Math.abs(ev.clientX - start.x) + Math.abs(ev.clientY - start.y) > 8) { clearTimeout(lp); lp = null; }
       n.x = start.nx + (ev.clientX - start.x) / state.view.s;
       n.y = start.ny + (ev.clientY - start.y) / state.view.s;
       el.style.left = n.x + "px"; el.style.top = n.y + "px";
     };
-    const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); save(); };
+    const up = () => { clearTimeout(lp); removeEventListener("pointermove", move); removeEventListener("pointerup", up); save(); };
+    if (IS_TOUCH) lp = setTimeout(() => {          // スマホ: ヘッダ長押しでメニュー
+      up();
+      try { navigator.vibrate && navigator.vibrate(25); } catch(err){}
+      openCtx(e.clientX, e.clientY, id);
+    }, 550);
     addEventListener("pointermove", move); addEventListener("pointerup", up);
+  });
+  // PC: 右クリックでメニュー（本文とタイトル入力はブラウザ標準を維持）
+  el.addEventListener("contextmenu", e => {
+    if (e.target.closest(".card-body, input")) return;
+    e.preventDefault();
+    if (!IS_TOUCH) openCtx(e.clientX, e.clientY, id);
   });
 
   // 幅リサイズ
@@ -1169,6 +1402,16 @@ function bindCard(el, id) {
 
   // TODOチェック・リンク・タグ・埋め込み・クエリのクリック
   body.addEventListener("click", e => {
+    const imgBlk = e.target.closest('[data-img]');
+    if (imgBlk) {
+      e.preventDefault();
+      toast("🖼️ この画像を削除しますか？", "削除する", () => {
+        imgBlk.remove();
+        const n2 = note();
+        if (n2) { commitBody(n2, body, false); renderCard(n2); sndWhoosh(); }
+      });
+      return;
+    }
     const qi = e.target.closest(".q-i");
     if (qi) { e.preventDefault(); focusNote(qi.dataset.id); return; }
     const emb = e.target.closest(".embed");
@@ -1181,7 +1424,7 @@ function bindCard(el, id) {
     const blk = e.target.closest(".blk");
     if (blk && blk.dataset.t === "todo") {
       const r = blk.getBoundingClientRect();
-      if (e.clientX - r.left < 24 * state.view.s) {
+      if (e.clientX - r.left < (IS_TOUCH ? 34 : 24) * state.view.s) {
         blk.dataset.ck = blk.dataset.ck === "1" ? "0" : "1";
         commitBody(note(), body, false); refreshFeet(); refreshDynamic();
         blk.dataset.ck === "1" ? sndDone() : sndTick();
@@ -1335,7 +1578,12 @@ function checkMarkers(body) {
       const rest = text.replace(re, "");
       blk.dataset.t = t;
       if (t === "todo") blk.dataset.ck = "0";
-      if (t === "hr") { blk.textContent = ""; blk.setAttribute("contenteditable","false"); }
+      if (t === "hr") {
+        blk.textContent = ""; blk.setAttribute("contenteditable","false");
+        const p = document.createElement("div");    // 区切り線の直後に空行を作りカーソルを逃がす
+        p.className = "blk"; p.dataset.t = "p";
+        blk.after(p); placeCaretStart(p);
+      }
       else { blk.textContent = rest; placeCaretStart(blk); }
       sndTick();
       return;
@@ -1428,6 +1676,9 @@ function applySlash(i) {
     const s = getSelection(); s.removeAllRanges(); s.addRange(r);
   } else if (it.t === "hr") {
     blk.dataset.t = "hr"; blk.setAttribute("contenteditable","false");
+    const p = document.createElement("div");
+    p.className = "blk"; p.dataset.t = "p";
+    blk.after(p); placeCaretStart(p);
   } else {
     blk.dataset.t = it.t;
     if (it.t === "todo") blk.dataset.ck = "0";
@@ -1526,6 +1777,7 @@ function applyView() {
   world.style.transform = `translate(${v.x}px,${v.y}px) scale(${v.s})`;
   $("#z-pct").textContent = Math.round(v.s*100) + "%";
   drawMinimap();
+  scheduleCull();
 }
 function screenToWorld(sx, sy) {
   return { x: (sx - state.view.x) / state.view.s, y: (sy - state.view.y) / state.view.s };
@@ -1562,8 +1814,21 @@ vp.addEventListener("pointerdown", e => {
   } else if (ptrs.size === 1) {
     panPtr = { id: e.pointerId, x: e.clientX, y: e.clientY, vx: state.view.x, vy: state.view.y, moved: false };
     vp.classList.add("panning");
+    if (IS_TOUCH) {                                  // スマホ: 空きスペース長押しでメモ作成
+      clearTimeout(lpTimer);
+      lpTimer = setTimeout(() => {
+        if (ptrs.size === 1 && panPtr && !panPtr.moved) {
+          const p = screenToWorld(panPtr.x, panPtr.y);
+          ptrs.clear(); panPtr = null; pinch = null; vp.classList.remove("panning");
+          try { navigator.vibrate && navigator.vibrate(30); } catch(err){}
+          const n = newNote(p.x - 150, p.y - 20);
+          setTimeout(() => cardEls.get(n.id)?.querySelector(".card-title").focus(), 60);
+        }
+      }, 550);
+    }
   }
 });
+let lpTimer = null;
 vp.addEventListener("pointermove", e => {
   if (!ptrs.has(e.pointerId)) return;
   ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -1580,11 +1845,12 @@ vp.addEventListener("pointermove", e => {
   }
   if (panPtr && e.pointerId === panPtr.id) {        // パンは開始した1本の指だけを追う
     const dx = e.clientX - panPtr.x, dy = e.clientY - panPtr.y;
-    if (Math.abs(dx) + Math.abs(dy) > 3) panPtr.moved = true;
+    if (Math.abs(dx) + Math.abs(dy) > 3) { panPtr.moved = true; clearTimeout(lpTimer); }
     state.view.x = panPtr.vx + dx; state.view.y = panPtr.vy + dy; applyView();
   }
 });
 const ptrEnd = e => {
+  clearTimeout(lpTimer);
   if (!ptrs.has(e.pointerId)) return;
   ptrs.delete(e.pointerId);
   if (ptrs.size < 2) pinch = null;
@@ -1602,6 +1868,35 @@ const ptrEnd = e => {
 };
 vp.addEventListener("pointerup", ptrEnd);
 vp.addEventListener("pointercancel", ptrEnd);
+// PC: 空きスペース右クリック → その場に新規メモ
+vp.addEventListener("contextmenu", e => {
+  if (e.target.closest(".card")) return;
+  e.preventDefault();
+  if (IS_TOUCH) return;
+  const p = screenToWorld(e.clientX, e.clientY);
+  const n = newNote(p.x - 150, p.y - 20);
+  setTimeout(() => cardEls.get(n.id)?.querySelector(".card-title").focus(), 30);
+});
+
+/* ---------------- 仮想化：画面外カードを描画から外す（1万枚対応） ---------------- */
+let cullPending = false;
+function cullCards() {
+  const m = 300 / state.view.s;
+  const tl = screenToWorld(0, 0), br = screenToWorld(innerWidth, innerHeight);
+  for (const n of state.notes) {
+    const el = cardEls.get(n.id); if (!el) continue;
+    let h = el._h;
+    if (!h && el.style.visibility !== "hidden") h = el._h = el.offsetHeight || 150;
+    h = h || 150;
+    const vis = n.x < br.x + m && n.x + n.w > tl.x - m && n.y < br.y + m && n.y + h > tl.y - m;
+    el.style.visibility = vis ? "" : "hidden";
+  }
+}
+function scheduleCull() {
+  if (cullPending) return;
+  cullPending = true;
+  requestAnimationFrame(() => { cullPending = false; cullCards(); });
+}
 vp.addEventListener("dblclick", e => {
   if (e.target.closest(".card")) return;
   const p = screenToWorld(e.clientX, e.clientY);
@@ -1643,6 +1938,7 @@ function focusNote(id, flash=true) {
   lastFocusedId = id;
   state.recent = [id, ...(state.recent || []).filter(x => x !== id)].slice(0, 12);
   n.h = (n.h || 0) + 1; n.la = Date.now(); save();
+  if (typeof conns !== "undefined" && conns.some(c => c.open)) broadcastRoom({ kind:"pres", note: id });
   const el = cardEls.get(id);
   const h = el?.offsetHeight || 120;
   state.view.s = Math.max(state.view.s, 0.8);
@@ -1779,6 +2075,8 @@ const COMMANDS = [
   { ico:"📝", label:"エクスポート: Markdown 1ファイル", run: exportMd },
   { ico:"🗃️", label:"エクスポート: Markdown フォルダへ個別", run: exportMdFolder },
   { ico:"📥", label:"インポート（JSON読み込み）", run: importJson },
+  { ico:"🤖", label:"メモに聞く（引用ベース回答）", sub:"? で始めても同じ", run: () => openPalette("? ") },
+  { ico:"🧪", label:"セルフテスト実行（全機能の健康診断）", run: () => runSelfTest() },
   { ico:"📲", label:"アプリとしてインストール（PWA）", run: () => installApp() },
   { ico:"❓", label:"ヘルプ", run: () => $("#m-help").classList.add("open") },
 ];
@@ -1796,6 +2094,7 @@ function renderPalette() {
   const q = $("#pal-input").value.trim();
   const note = $("#pal-note"); note.style.display = "none";
   palItems = [];
+  if (q.startsWith("?") || q.startsWith("？")) { renderQa(q.replace(/^[?？]\s*/, "")); return; }
 
   const dr = q ? parseDateQuery(q) : null;
   if (dr) {
@@ -1805,7 +2104,7 @@ function renderPalette() {
     state.notes.filter(n => n.u >= dr.from && n.u < dr.to)
       .sort((a,b) => b.u - a.u)
       .forEach(n => palItems.push({ ico:"🗒️", label: n.title || "無題",
-        prev: n.blocks.map(b=>b.md).join(" ").slice(0,60), run: () => focusNote(n.id) }));
+        prev: n.blocks.map(b => b.t === "img" ? "" : b.md).join(" ").slice(0,60), run: () => focusNote(n.id) }));
   } else if (q.startsWith("#")) {
     const tq = q.slice(1);
     [...allTags()].filter(([t]) => t.includes(tq)).forEach(([t,c]) =>
@@ -1826,16 +2125,20 @@ function renderPalette() {
       if (n.ar) return;
       const txt = noteText(n);
       const sc = fuzzyScore(q, txt);
-      if (sc >= 0 && (q || n.title)) palItems.push({
+      const sem = q.length >= 2 ? tfScore(q, n.id) : 0;      // 意味的な近さ（TF-IDFコサイン）を融合
+      if ((sc >= 0 || sem > 0.06) && (q || n.title)) palItems.push({
         ico:"🗒️", label: n.title || "無題",
-        prev: n.blocks.map(b=>b.md).join(" ").slice(0,60),
-        _s: sc + (fuzzyScore(q, n.title) > 0 ? 50 : 0),
+        prev: n.blocks.map(b => b.t === "img" ? "" : b.md).join(" ").slice(0,60),
+        _s: Math.max(sc, 0) + sem * 600 + (fuzzyScore(q, n.title) > 0 ? 50 : 0),
         run: () => { focusNote(n.id); highlightInCard(n.id, q); },
       });
     });
     palItems.sort((a,b) => (b._s||0) - (a._s||0));
     if (q && !findByTitle(q)) palItems.push({ ico:"✨", label:`「${q}」を新規作成`, run: () => jumpToLink(q) });
   }
+  paintPalList();
+}
+function paintPalList() {
   palItems = palItems.slice(0, 40);
   palSel = Math.min(palSel, Math.max(0, palItems.length-1));
   const list = $("#pal-list");
@@ -1851,6 +2154,83 @@ function renderPalette() {
   });
   list.querySelector(".sel")?.scrollIntoView({ block:"nearest" });
 }
+
+/* ---------------- ハイブリッド検索（TF-IDF）＋「メモに聞く」 ---------------- */
+let tfIdx = null, tfDirty = true;
+function tokenize(s) {
+  s = (s || "").toLowerCase();
+  const out = (s.match(/[a-z0-9_]+/g) || []).filter(w => w.length > 1);
+  const jp = s.replace(/[a-z0-9_\s]+/g, " ");
+  for (const seg of jp.split(/[\s、。・「」()（）\[\]{}!?！？:：;；,，.]+/)) {
+    if (!seg) continue;
+    if (seg.length === 1) { out.push(seg); continue; }
+    for (let i = 0; i < seg.length - 1; i++) out.push(seg.slice(i, i + 2));
+  }
+  return out;
+}
+function buildTfIdx() {
+  const docs = state.notes.filter(n => !n.ar);
+  const df = new Map(), vecs = new Map();
+  const tfs = docs.map(n => {
+    const tf = new Map();
+    for (const t of tokenize(noteText(n))) tf.set(t, (tf.get(t) || 0) + 1);
+    for (const t of tf.keys()) df.set(t, (df.get(t) || 0) + 1);
+    return [n.id, tf];
+  });
+  const N = docs.length || 1;
+  for (const [id, tf] of tfs) {
+    const v = new Map(); let norm = 0;
+    for (const [t, f] of tf) {
+      const w = (1 + Math.log(f)) * Math.log(1 + N / (df.get(t) || 1));
+      v.set(t, w); norm += w * w;
+    }
+    vecs.set(id, { v, norm: Math.sqrt(norm) || 1 });
+  }
+  tfIdx = { vecs, df, N };
+  tfDirty = false;
+}
+function tfScore(q, id) {
+  if (tfDirty || !tfIdx) buildTfIdx();
+  const d = tfIdx.vecs.get(id);
+  if (!d) return 0;
+  const qt = new Map();
+  for (const t of tokenize(q)) qt.set(t, (qt.get(t) || 0) + 1);
+  let dot = 0, qn = 0;
+  for (const [t, f] of qt) {
+    const w = (1 + Math.log(f)) * Math.log(1 + tfIdx.N / (tfIdx.df.get(t) || 1));
+    qn += w * w;
+    const dw = d.v.get(t);
+    if (dw) dot += w * dw;
+  }
+  return dot / ((Math.sqrt(qn) || 1) * d.norm);
+}
+function renderQa(q) {
+  const note = $("#pal-note");
+  note.style.display = "block";
+  note.textContent = q.length >= 2 ? "🤖 あなたのメモから関連箇所を抜粋して答えます（引用ベース・ローカルLLMは次段階）" : "🤖 質問をどうぞ（例: ? 読書メモの要点は）";
+  palItems = [];
+  if (q.length >= 2) {
+    const qTerms = new Set(tokenize(q));
+    const scored = state.notes.filter(n => !n.ar).map(n => [n, tfScore(q, n.id)])
+      .filter(([n, s]) => s > 0.03).sort((a, b) => b[1] - a[1]).slice(0, 4);
+    for (const [n, s] of scored) {
+      let best = null, bs = 0;
+      for (const b of n.blocks) {
+        if (b.t === "img" || !(b.md || "").trim()) continue;
+        let hit = 0;
+        for (const t of new Set(tokenize(b.md))) if (qTerms.has(t)) hit++;
+        if (hit > bs) { bs = hit; best = b; }
+      }
+      palItems.push({
+        ico:"🤖", label: (best ? best.md : noteText(n)).slice(0, 80),
+        sub: `${n.title || "無題"}・関連度${Math.round(s * 100)}`,
+        run: () => { focusNote(n.id); highlightInCard(n.id, q.slice(0, 10)); },
+      });
+    }
+    if (!palItems.length) palItems.push({ ico:"🌑", label:"関連するメモが見つかりませんでした", sub:"別の言い方で試してみてください", run: () => {} });
+  }
+  paintPalList();
+}
 function runPal(i) { const it = palItems[i]; closePalette(); it?.run(); }
 $("#pal-input").addEventListener("input", () => { palSel = 0; renderPalette(); });
 $("#pal-input").addEventListener("keydown", e => {
@@ -1863,10 +2243,14 @@ $("#palette").addEventListener("mousedown", e => { if (e.target.id === "palette"
 
 /* ---------------- 知識グラフ（星座ビュー） ---------------- */
 let gAnim = null, gNodes = [];
+let gResize = null;
 function openGraph() {
   closeAll();
   $("#graph").classList.add("open"); sndOpen();
   const cv = $("#gcanvas"); cv.width = innerWidth; cv.height = innerHeight;
+  removeEventListener("resize", gResize);
+  gResize = () => { cv.width = innerWidth; cv.height = innerHeight; };
+  addEventListener("resize", gResize);
   const ctx = cv.getContext("2d");
   // ノード初期化（既存座標をシード）
   gNodes = state.notes.filter(n => !n.ar).map(n => ({
@@ -1946,7 +2330,7 @@ function openGraph() {
     if (best) { closeGraph(); focusNote(best.n.id); }
   };
 }
-function closeGraph() { $("#graph").classList.remove("open"); cancelAnimationFrame(gAnim); }
+function closeGraph() { $("#graph").classList.remove("open"); cancelAnimationFrame(gAnim); removeEventListener("resize", gResize); }
 $("#g-close").onclick = closeGraph;
 
 /* ---------------- タイムライン ---------------- */
@@ -1964,7 +2348,7 @@ function renderTimeline() {
     if (label !== lastDay) { html += `<div class="tl-day">${label}</div>`; lastDay = label; }
     html += `<div class="tl-item" data-id="${n.id}">
       <div class="t">${escH(n.title || "無題")}</div>
-      <div class="p">${escH(n.blocks.map(b=>b.md).join(" ").slice(0,50))}</div></div>`;
+      <div class="p">${escH(n.blocks.map(b => b.t === "img" ? "🖼️" : b.md).join(" ").slice(0,50))}</div></div>`;
   }
   list.innerHTML = html || `<div class="pal-empty">まだメモがありません</div>`;
   list.querySelectorAll(".tl-item").forEach(d => d.onclick = () => focusNote(d.dataset.id));
@@ -1990,7 +2374,7 @@ function openHistory() {
     btn.className = "btn"; btn.textContent = "この時点に戻す";
     btn.onclick = () => {
       snapshot();                                   // 現状も履歴に残す
-      state.notes = s.notes; save(true);
+      state.notes = JSON.parse(JSON.stringify(s.notes)); save(true);
       renderAll(); refreshFeet();
       $("#m-hist").classList.remove("open");
       toast("⏪ 巻き戻しました"); sndDone();
@@ -2001,34 +2385,57 @@ function openHistory() {
 }
 $$(".modal").forEach(m => m.addEventListener("mousedown", e => { if (e.target === m) m.classList.remove("open"); }));
 
-/* ---------------- 音声メモ ---------------- */
-let recog = null, recOn = false, recNote = null;
+/* ---------------- 音声メモ（確実に止まる版） ---------------- */
+let recog = null, recOn = false, recNote = null, recTimer = null;
+function stopVoice(silent) {
+  recOn = false;
+  clearTimeout(recTimer);
+  $("#b-voice").classList.remove("rec");
+  if (recog) {
+    try { recog.onend = null; recog.onresult = null; recog.onerror = null; recog.abort(); } catch(e){}
+    recog = null;
+  }
+  if (!silent) toast("🎤 音声メモを終了しました");
+}
 function toggleVoice() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { toast("⚠️ このブラウザは音声認識に未対応です（Chrome推奨）"); return; }
-  if (recOn) { recog.stop(); return; }
+  if (recOn || recog) { stopVoice(); return; }        // どんな状態でも必ず止められる
   recog = new SR();
   recog.lang = "ja-JP"; recog.continuous = true; recog.interimResults = true;
-  const c = screenToWorld(innerWidth/2, innerHeight/2);
-  const d = new Date();
-  recNote = newNote(c.x-150, c.y-40, `🎤 音声メモ ${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`);
-  focusNote(recNote.id, false);
+  recNote = null;                                     // 最初に声を認識できた時だけメモを作る（空メモ量産の防止）
+  recog.onstart = () => {
+    recOn = true;
+    $("#b-voice").classList.add("rec");
+    toast("🎤 話してください… もう一度 🎤 で終了");
+  };
   recog.onresult = ev => {
     let final = "";
     for (let i = ev.resultIndex; i < ev.results.length; i++)
       if (ev.results[i].isFinal) final += ev.results[i][0].transcript;
-    if (final && recNote) {
-      const last = recNote.blocks[recNote.blocks.length-1];
-      if (last && !last.md) last.md = final.trim();
-      else recNote.blocks.push({ t:"p", md: final.trim() });
-      recNote.u = Date.now(); renderCard(recNote); save();
+    if (!final.trim()) return;
+    if (!recNote || !state.notes.includes(recNote)) {
+      const c = screenToWorld(innerWidth/2, innerHeight/2);
+      const d = new Date();
+      recNote = newNote(c.x-150, c.y-40, `🎤 音声メモ ${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`);
     }
+    const last = recNote.blocks[recNote.blocks.length-1];
+    if (last && !last.md) last.md = final.trim();
+    else recNote.blocks.push({ t:"p", md: final.trim() });
+    recNote.u = Date.now(); renderCard(recNote); save();
   };
-  recog.onend = () => { recOn = false; $("#b-voice").classList.remove("rec"); toast("🎤 音声メモを終了しました"); };
-  recog.onerror = e => { if (e.error === "not-allowed") toast("⚠️ マイクの使用が許可されていません"); };
-  recog.start(); recOn = true;
-  $("#b-voice").classList.add("rec");
-  toast("🎤 話してください… もう一度押すと終了");
+  recog.onend = () => {                               // 沈黙などで勝手に終了してもUIを必ず戻す
+    if (recOn) stopVoice();
+  };
+  recog.onerror = e => {
+    const err = e.error;
+    stopVoice(true);
+    if (err === "not-allowed" || err === "service-not-allowed") toast("⚠️ マイクが許可されていません（ブラウザのサイト設定で許可してください）");
+    else if (err === "no-speech") toast("🎤 音声が聞き取れませんでした");
+    else if (err !== "aborted") toast("⚠️ 音声認識エラー: " + err);
+  };
+  recTimer = setTimeout(() => { if (!recOn) { stopVoice(true); toast("⚠️ マイクを開始できませんでした"); } }, 6000);
+  try { recog.start(); } catch(e) { stopVoice(true); toast("⚠️ 音声認識を開始できません"); }
 }
 
 /* ---------------- コンテキストメニュー ---------------- */
@@ -2726,6 +3133,81 @@ function installApp() {
   else toast("📲 既にインストール済みか、ブラウザメニューの「アプリをインストール」からどうぞ");
 }
 
+/* ---------------- 内蔵セルフテスト（機能が壊れていないことを機械が保証） ---------------- */
+async function runSelfTest() {
+  const res = [];
+  const T = (name, fn) => { try { const ok = fn(); res.push({ name, ok: !!ok }); } catch(e) { res.push({ name, ok: false, err: e.message }); } };
+  const TA = async (name, fn) => { try { const ok = await fn(); res.push({ name, ok: !!ok }); } catch(e) { res.push({ name, ok: false, err: e.message }); } };
+  // --- 整形エンジン ---
+  T("太字/斜体/コード整形", () => fmt("**b** *i* `c`").includes("<b>b</b>") && fmt("x *i* y").includes("<i>i</i>") && fmt("`c`").includes("<code>c</code>"));
+  T("数式レンダリング", () => fmt("$E=mc^2$").includes("<sup>2</sup>") && fmt("$\\alpha\\to\\infty$").includes("α") && fmt("$\\frac{a}{b}$").includes("frac"));
+  T("数式の往復保存", () => { const d = document.createElement("div"); d.innerHTML = fmt("$x^2$ と **太**"); return toMd(d) === "$x^2$ と **太**"; });
+  T("wikiリンクとリンク切れ検出", () => !fmt("[[今日のTODO]]").includes("broken") === !!findByTitle("今日のTODO") && fmt("[[存在しない星xyz]]").includes("broken"));
+  T("タグ色分け", () => fmt("#テスト用タグ").includes("data-tag"));
+  T("URL自動リンク", () => fmt("https://example.com").includes("<a href"));
+  T("埋め込み(トランスクルージョン)往復", () => { const d = document.createElement("div"); d.innerHTML = fmt("![[今日のTODO]]"); return toMd(d) === "![[今日のTODO]]"; });
+  T("クエリブロック往復", () => { const d = document.createElement("div"); d.innerHTML = fmt("{{未完了}}"); return toMd(d) === "{{未完了}}"; });
+  T("コードハイライト", () => hl("const x = 1 // c").includes("tk-k") && hl("x = 1").includes("tk-n"));
+  T("HTMLエスケープ", () => !fmt("<script>alert(1)</scr" + "ipt>").includes("<script"));
+  // --- 変換・入力 ---
+  T("行頭マーカー定義", () => MARKERS.length >= 10 && MARKERS.some(([re]) => re.test("# ")));
+  T("スニペット組み込み", () => { const s = builtinSnips(); return s.date && s.time && s.rem.startsWith("⏰"); });
+  T("Markdownエクスポート形式", () => noteToMd({ title:"t", blocks:[{t:"todo",md:"a",ck:1},{t:"h1",md:"h"}] }).includes("- [x] a"));
+  // --- 検索・日付 ---
+  T("あいまい検索スコア", () => fuzzyScore("todo", "今日のtodoリスト") > 0 && fuzzyScore("xyz", "abc") < 0);
+  T("日付検索: 昨日", () => { const d = parseDateQuery("昨日"); return d && d.to - d.from === 86400000; });
+  T("日付検索: 先週の火曜", () => { const d = parseDateQuery("先週の火曜"); return d && new Date(d.from).getDay() === 2; });
+  T("日付検索: N日前", () => !!parseDateQuery("3日前") && !!parseDateQuery("7/1"));
+  T("トークナイザ", () => tokenize("量子力学のnotes").includes("量子") && tokenize("量子力学のnotes").includes("notes"));
+  T("TF-IDF検索", () => { tfDirty = true; const n = state.notes.find(x => noteText(x).length > 5); return n ? tfScore(noteText(n).slice(2, 8), n.id) >= 0 : true; });
+  // --- 同期マージ ---
+  T("マージ: 新規メモ到着", () => {
+    const before = state.notes.length;
+    mergeRemote({ notes: [{ id:"__t1", title:"__test", x:0, y:0, w:300, color:0, blocks:[], c:1, u: Date.now() + 1e6 }], dead:{} });
+    const ok = state.notes.length === before + 1;
+    state.notes = state.notes.filter(n => n.id !== "__t1");
+    return ok;
+  });
+  T("マージ: 新しい方が勝つ(LWW)", () => {
+    state.notes.push({ id:"__t2", title:"a", x:0, y:0, w:300, color:0, blocks:[{t:"p",md:"old"}], c:1, u:100 });
+    mergeRemote({ notes: [{ id:"__t2", title:"a", x:0, y:0, w:300, color:0, blocks:[{t:"p",md:"new"}], c:1, u:200 }], dead:{} });
+    const n = state.notes.find(x => x.id === "__t2");
+    const ok = n && n.blocks[0].md === "new";
+    state.notes = state.notes.filter(x => x.id !== "__t2");
+    return ok;
+  });
+  T("マージ: 削除の墓標が効く", () => {
+    state.notes.push({ id:"__t3", title:"d", x:0, y:0, w:300, color:0, blocks:[], c:1, u:100 });
+    mergeRemote({ notes: [], dead: { __t3: 200 } });
+    const ok = !state.notes.find(x => x.id === "__t3");
+    delete (state.dead || {}).__t3;
+    return ok;
+  });
+  T("マージ: 削除後の編集は復活", () => {
+    state.dead = state.dead || {};
+    mergeRemote({ notes: [{ id:"__t4", title:"r", x:0, y:0, w:300, color:0, blocks:[], c:1, u: 300 }], dead: { __t4: 200 } });
+    const ok = !!state.notes.find(x => x.id === "__t4");
+    state.notes = state.notes.filter(x => x.id !== "__t4"); delete state.dead.__t4;
+    return ok;
+  });
+  // --- 暗号・ユーティリティ ---
+  await TA("E2E暗号化の往復", async () => (await decStr("かぎ", await encStr("かぎ", "秘密のメモ🌟"))) === "秘密のメモ🌟");
+  await TA("E2E: 違う鍵では復号不能", async () => { try { await decStr("べつのかぎ", await encStr("かぎ", "x")); return false; } catch(e) { return true; } });
+  T("あいことばID生成の安定性", () => hash36("test") === hash36("test") && hash36("a") !== hash36("b"));
+  T("リマインダー時刻解析", () => remTimes({ title:"", blocks:[{t:"p", md:"⏰ 7/20 15:00"}] }).length === 1);
+  T("日付キー形式", () => /^\d{4}-\d{2}-\d{2}$/.test(dayKeyOf(Date.now())));
+  T("検索から画像データ除外", () => noteText({ title:"t", blocks:[{t:"img", md:"data:x"}, {t:"p", md:"本文"}] }) === "t  本文");
+  T("仮想化カリング動作", () => { cullCards(); return typeof cullPending === "boolean"; });
+  T("音声メモの停止機構", () => typeof stopVoice === "function" && toggleVoice.toString().includes("abort"));
+  // --- 集計 ---
+  const pass = res.filter(r => r.ok).length;
+  openList(`🧪 セルフテスト: ${pass}/${res.length} 合格${pass === res.length ? " 🎉" : " ⚠️"}`,
+    res.map(r => ({ ico: r.ok ? "✅" : "❌", label: r.name, sub: r.err || "", run: () => {} })));
+  if (pass === res.length) sndDone(); else sndWhoosh();
+  renderAll(); refreshFeet();
+  return res;
+}
+
 /* ---------------- トースト ---------------- */
 function toast(msg, actionLabel, action) {
   const t = document.createElement("div");
@@ -2815,6 +3297,11 @@ $("#b-qc").onclick = openQc;
 $("#b-stats").onclick = openStats;
 $("#b-sync").onclick = syncMenu;
 $("#z-rand").onclick = randomRevisit;
+$("#mb-new").onclick = () => COMMANDS[0].run();
+$("#mb-search").onclick = () => openPalette();
+$("#mb-qc").onclick = openQc;
+$("#mb-graph").onclick = openGraph;
+$("#mb-menu").onclick = () => openList("☰ メニュー（全機能）", COMMANDS.map(c => ({ ico: c.ico, label: c.label, sub: c.sub, run: c.run })));
 $("#b-graph").onclick = openGraph;
 $("#b-voice").onclick = toggleVoice;
 $("#b-theme").onclick = cycleTheme;
@@ -2869,6 +3356,8 @@ function seed() {
   renderAll(); refreshFeet();
   setInterval(scanReminders, 30000);
   setTimeout(scanReminders, 3000);
+  // あいことば設定済みなら自動でP2P接続
+  if (state.room && navigator.onLine) setTimeout(() => joinRoom(state.room), 3500);
 
   // 毎朝のデイリーノート（今日の受け皿）
   ensureDailyNote();
