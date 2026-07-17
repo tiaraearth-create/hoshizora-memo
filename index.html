@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>星空メモ ✦ 無限キャンバス・第二の脳</title>
 <style>
   :root, [data-theme="hoshizora"] {
@@ -1542,45 +1542,73 @@ vp.addEventListener("wheel", e => {
   if (e.ctrlKey || Math.abs(e.deltaY) > 0) zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.1 : 1/1.1);
 }, { passive:false });
 
-let panPtr = null;
+/* 指・マウスの統合管理：1本=パン、2本=ピンチズーム（中点を錨に固定してブレを根絶） */
+const ptrs = new Map();
+let panPtr = null, pinch = null;
 vp.addEventListener("pointerdown", e => {
   if (e.target.closest(".card")) return;
-  panPtr = { x: e.clientX, y: e.clientY, vx: state.view.x, vy: state.view.y, moved:false };
-  vp.classList.add("panning"); vp.setPointerCapture(e.pointerId);
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  try { vp.setPointerCapture(e.pointerId); } catch(err){}
+  if (ptrs.size === 2) {
+    panPtr = null;                                  // ピンチ開始：パンは即中止
+    const [a, b] = [...ptrs.values()];
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    pinch = {
+      d: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+      s: state.view.s,
+      wx: (mx - state.view.x) / state.view.s,       // 指の中点のワールド座標（錨）
+      wy: (my - state.view.y) / state.view.s,
+    };
+  } else if (ptrs.size === 1) {
+    panPtr = { id: e.pointerId, x: e.clientX, y: e.clientY, vx: state.view.x, vy: state.view.y, moved: false };
+    vp.classList.add("panning");
+  }
 });
 vp.addEventListener("pointermove", e => {
-  if (!panPtr) return;
-  const dx = e.clientX - panPtr.x, dy = e.clientY - panPtr.y;
-  if (Math.abs(dx)+Math.abs(dy) > 3) panPtr.moved = true;
-  state.view.x = panPtr.vx + dx; state.view.y = panPtr.vy + dy; applyView();
-});
-vp.addEventListener("pointerup", e => {
-  if (panPtr && !panPtr.moved && !e.target.closest(".card")) {
-    if (document.activeElement) document.activeElement.blur();
+  if (!ptrs.has(e.pointerId)) return;
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch && ptrs.size >= 2) {
+    const [a, b] = [...ptrs.values()];
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+    const ns = Math.max(0.12, Math.min(3, pinch.s * (d / pinch.d)));
+    state.view.s = ns;
+    state.view.x = mx - pinch.wx * ns;              // 錨点が常に指の中点に来る
+    state.view.y = my - pinch.wy * ns;
+    applyView();
+    return;
   }
-  panPtr = null; vp.classList.remove("panning"); save();
+  if (panPtr && e.pointerId === panPtr.id) {        // パンは開始した1本の指だけを追う
+    const dx = e.clientX - panPtr.x, dy = e.clientY - panPtr.y;
+    if (Math.abs(dx) + Math.abs(dy) > 3) panPtr.moved = true;
+    state.view.x = panPtr.vx + dx; state.view.y = panPtr.vy + dy; applyView();
+  }
 });
+const ptrEnd = e => {
+  if (!ptrs.has(e.pointerId)) return;
+  ptrs.delete(e.pointerId);
+  if (ptrs.size < 2) pinch = null;
+  if (panPtr && e.pointerId === panPtr.id) {
+    if (!panPtr.moved && !e.target.closest(".card")) {
+      if (document.activeElement) document.activeElement.blur();
+    }
+    panPtr = null;
+  }
+  if (ptrs.size === 1 && !panPtr) {                 // 2本→1本：残った指でシームレスにパン再開
+    const [id] = ptrs.keys(); const p = [...ptrs.values()][0];
+    panPtr = { id, x: p.x, y: p.y, vx: state.view.x, vy: state.view.y, moved: true };
+  }
+  if (!ptrs.size) { vp.classList.remove("panning"); save(); }
+};
+vp.addEventListener("pointerup", ptrEnd);
+vp.addEventListener("pointercancel", ptrEnd);
 vp.addEventListener("dblclick", e => {
   if (e.target.closest(".card")) return;
   const p = screenToWorld(e.clientX, e.clientY);
   const n = newNote(p.x - 150, p.y - 20);
   setTimeout(() => cardEls.get(n.id)?.querySelector(".card-title").focus(), 30);
 });
-// ピンチズーム（タッチ2本）
-let pinch = null;
-vp.addEventListener("touchstart", e => {
-  if (e.touches.length === 2) {
-    pinch = { d: Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY), s: state.view.s };
-  }
-}, { passive:true });
-vp.addEventListener("touchmove", e => {
-  if (pinch && e.touches.length === 2) {
-    const d = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
-    const cx = (e.touches[0].clientX+e.touches[1].clientX)/2, cy = (e.touches[0].clientY+e.touches[1].clientY)/2;
-    zoomAt(cx, cy, (pinch.s * d / pinch.d) / state.view.s);
-  }
-}, { passive:true });
-vp.addEventListener("touchend", () => pinch = null);
+// （旧touchイベント式ピンチは pointer 統合管理に置き換え済み）
 
 $("#z-in").onclick = () => zoomAt(innerWidth/2, innerHeight/2, 1.2);
 $("#z-out").onclick = () => zoomAt(innerWidth/2, innerHeight/2, 1/1.2);
