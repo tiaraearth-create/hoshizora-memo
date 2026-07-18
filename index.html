@@ -248,6 +248,13 @@
   body.touch #ctx .colors { padding:8px 10px; }
   body.touch #ctx .colors i { width:26px; height:26px; }
   body.touch #ctx .colors b { font-size:22px !important; }
+  #ctx-bg { position:fixed; inset:0; z-index:79; display:none; background:rgba(5,5,15,.4); }
+  body.touch #ctx-bg.open { display:block; }
+  #ctx .ctx-close { display:none; }
+  body.touch #ctx .ctx-close {
+    display:block; text-align:center; padding:13px; font-size:15px; color:var(--dim);
+    border-top:1px solid var(--border); cursor:pointer; margin-top:2px;
+  }
 
   /* ======= トースト ======= */
   #toasts { position:fixed; bottom:60px; left:50%; transform:translateX(-50%); z-index:90; display:flex; flex-direction:column; gap:8px; align-items:center; }
@@ -510,6 +517,7 @@
 </div></div>
 
 <div id="slash"></div>
+<div id="ctx-bg"></div>
 <div id="ctx"></div>
 
 <div id="graph">
@@ -529,7 +537,9 @@
 </div></div>
 
 <div class="modal" id="m-help"><div class="modal-box">
-  <h3>✦ 星空メモの使い方</h3>
+  <h3>✦ 星空メモの使い方 <span style="color:var(--dim); font-size:11px; font-weight:400">v1.0</span></h3>
+  <div class="help-row"><span class="help-k">📱 スマホ</span>空きスペース<b>長押し</b>でメモ作成／カード上部<b>長押し</b>でメニュー／下のバーから全機能</div>
+  <div class="help-row"><span class="help-k">💻 PC</span>空きスペース<b>右クリック</b>でメモ作成／カード<b>右クリック</b>でメニュー</div>
   <div class="help-row"><span class="help-k">W ダブルクリック</span>空きスペースにメモを作成</div>
   <div class="help-row"><span class="help-k">Ctrl+K</span>コマンドパレット（検索・日付検索・全コマンド）</div>
   <div class="help-row"><span class="help-k">Ctrl+N</span>新規メモ／<span class="help-k">Ctrl+G</span>グラフビュー</div>
@@ -544,6 +554,10 @@
   <div class="help-row"><span class="help-k">カードの⋯</span>📌ピン留め（左ドック常駐）／📦アーカイブ（棚上げ）</div>
   <div class="help-row"><span class="help-k">自動保存</span>IndexedDB保存＋毎日の世代バックアップ14日分。Ctrl+K→「バックアップ先」でフォルダにも自動書き出し</div>
   <div class="help-row"><span class="help-k">🌅</span>毎朝「1年前の今日」「忘却曲線の読み返し時」をお届け</div>
+  <div class="help-row"><span class="help-k">☁️ 同期</span>全端末で同じ「あいことば」を入れるだけで自動接続。ファイル同期は🔐でE2E暗号化も可</div>
+  <div class="help-row"><span class="help-k">? 質問</span>Ctrl+K で「? 」から始めると、メモから抜粋して回答（🤖メモに聞く）</div>
+  <div class="help-row"><span class="help-k">🧪</span>Ctrl+K「セルフテスト」でいつでも全機能の健康診断</div>
+  <div class="help-row"><span class="help-k">$数式$</span><span class="help-k">![[埋め込み]]</span><span class="help-k">{{tag:x 未完了}}</span>数式・埋め込み・自動リストも書けます</div>
   <div style="margin-top:12px; text-align:right"><button class="btn" onclick="document.getElementById('m-help').classList.remove('open')">閉じる</button></div>
 </div></div>
 
@@ -1203,6 +1217,9 @@ function newNote(x, y, title="", blocks=null) {
   return n;
 }
 function noteText(n) { return n.title + " " + n.blocks.map(b => b.t === "img" ? "" : (b.md || "")).join(" "); }
+function isEmptyNote(n) {
+  return !(n.title || "").trim() && (n.blocks || []).every(b => b.t !== "img" && !(b.md || "").trim());
+}
 function findByTitle(t) { return state.notes.find(n => n.title.trim() === t.trim()); }
 function outLinks(n) {
   const set = new Set(); const re = /\[\[([^\[\]]+)\]\]/g; let m;
@@ -1405,6 +1422,13 @@ function bindCard(el, id) {
     if (!el.contains(document.activeElement)) {
       el.classList.remove("focus");
       commitBody(note(), body, true);
+      const n = note();
+      if (n && isEmptyNote(n)) {                    // 誤タップで生まれた白紙カードは静かに片付ける
+        state.notes = state.notes.filter(x => x.id !== n.id);
+        state.dead = state.dead || {}; state.dead[n.id] = Date.now();
+        el.remove(); cardEls.delete(n.id);
+        save(); renderPins();
+      }
     }
   }, 0));
 
@@ -1805,8 +1829,7 @@ function applyView() {
   const v = state.view;
   world.style.transform = `translate(${v.x}px,${v.y}px) scale(${v.s})`;
   $("#z-pct").textContent = Math.round(v.s*100) + "%";
-  drawMinimap();
-  scheduleCull();
+  scheduleCull();                                   // カリングとミニマップはフレームに間引き
 }
 function screenToWorld(sx, sy) {
   return { x: (sx - state.view.x) / state.view.s, y: (sy - state.view.y) / state.view.s };
@@ -1924,7 +1947,7 @@ function cullCards() {
 function scheduleCull() {
   if (cullPending) return;
   cullPending = true;
-  requestAnimationFrame(() => { cullPending = false; cullCards(); });
+  requestAnimationFrame(() => { cullPending = false; cullCards(); drawMinimap(); });
 }
 vp.addEventListener("dblclick", e => {
   if (e.target.closest(".card")) return;
@@ -2268,7 +2291,7 @@ $("#pal-input").addEventListener("keydown", e => {
   else if (e.key === "Enter") { e.preventDefault(); runPal(palSel); }
   else if (e.key === "Escape") closePalette();
 });
-$("#palette").addEventListener("mousedown", e => { if (e.target.id === "palette") closePalette(); });
+$("#palette").addEventListener("pointerdown", e => { if (e.target.id === "palette") closePalette(); });
 
 /* ---------------- 知識グラフ（星座ビュー） ---------------- */
 let gAnim = null, gNodes = [];
@@ -2282,7 +2305,12 @@ function openGraph() {
   addEventListener("resize", gResize);
   const ctx = cv.getContext("2d");
   // ノード初期化（既存座標をシード）
-  gNodes = state.notes.filter(n => !n.ar).map(n => ({
+  let gsrc = state.notes.filter(n => !n.ar);
+  if (gsrc.length > 150) {
+    gsrc = [...gsrc].sort((a, b) => b.u - a.u).slice(0, 150);
+    toast("🕸️ 直近150枚を表示しています（軽さ優先）");
+  }
+  gNodes = gsrc.map(n => ({
     n, x: innerWidth/2 + (Math.random()-.5)*300, y: innerHeight/2 + (Math.random()-.5)*300,
     vx:0, vy:0, r: 5 + Math.min(14, noteText(n).length/40),
   }));
@@ -2365,7 +2393,7 @@ $("#g-close").onclick = closeGraph;
 /* ---------------- タイムライン ---------------- */
 function renderTimeline() {
   const list = $("#tl-list");
-  const sorted = state.notes.filter(n => !n.ar).sort((a,b) => b.u - a.u);
+  const sorted = state.notes.filter(n => !n.ar).sort((a,b) => b.u - a.u).slice(0, 200);
   let lastDay = "", html = "";
   const today = day0(new Date());
   for (const n of sorted) {
@@ -2412,7 +2440,7 @@ function openHistory() {
   });
   $("#m-hist").classList.add("open");
 }
-$$(".modal").forEach(m => m.addEventListener("mousedown", e => { if (e.target === m) m.classList.remove("open"); }));
+$$(".modal").forEach(m => m.addEventListener("pointerdown", e => { if (e.target === m) m.classList.remove("open"); }));
 
 /* ---------------- 音声メモ（確実に止まる版） ---------------- */
 let recog = null, recOn = false, recNote = null, recTimer = null;
@@ -2486,7 +2514,10 @@ function openCtx(x, y, noteId) {
       <div data-a="html">🌐 HTML化</div>
       <div data-a="arch">📦 アーカイブ</div>
     </div>
-    <div data-a="del" class="danger">🗑️ このメモを削除</div>`;
+    <div data-a="del" class="danger">🗑️ このメモを削除</div>
+    <div class="ctx-close">閉じる</div>`;
+  ctx.querySelector(".ctx-close").onclick = closeCtx;
+  $("#ctx-bg").classList.add("open");
   ctx.style.display = "flex";
   // 実測サイズで画面内に必ず収める（スマホはCSSでボトムシート化されるので座標不要）
   if (!document.body.classList.contains("touch")) {
@@ -2526,8 +2557,13 @@ function openCtx(x, y, noteId) {
   ctx.querySelector('[data-a="html"]').onclick = () => { closeCtx(); lastFocusedId = noteId; exportNoteHtml(); };
   ctx.querySelector('[data-a="del"]').onclick = () => { deleteNote(noteId); closeCtx(); };
 }
-function closeCtx() { $("#ctx").style.display = "none"; }
-addEventListener("mousedown", e => { if (!e.target.closest("#ctx")) closeCtx(); });
+function closeCtx() { $("#ctx").style.display = "none"; $("#ctx-bg").classList.remove("open"); }
+// 外タップで確実に閉じる（mousedownはタッチで発火しないことがあるためpointerdownで）
+addEventListener("pointerdown", e => {
+  if (!e.target.closest("#ctx")) closeCtx();
+  if (!e.target.closest("#slash") && !e.target.closest(".card-body")) { closeSlash(); closeWiki(); }
+}, true);
+$("#ctx-bg").addEventListener("pointerdown", e => { e.preventDefault(); closeCtx(); });
 
 /* ---------------- テーマ・エクスポート ---------------- */
 const THEMES = ["hoshizora","shinkai","asayake"];
@@ -2595,7 +2631,7 @@ $("#qc-input").addEventListener("keydown", e => {
     toast("⚡ 今日のデイリーノートに保存しました");
   } else if (e.key === "Escape") closeQc();
 });
-$("#qc").addEventListener("mousedown", e => { if (e.target.id === "qc") closeQc(); });
+$("#qc").addEventListener("pointerdown", e => { if (e.target.id === "qc") closeQc(); });
 
 /* ---------------- 汎用リストモーダル ---------------- */
 function openList(title, items) {
@@ -3234,6 +3270,20 @@ async function runSelfTest() {
   T("検索から画像データ除外", () => noteText({ title:"t", blocks:[{t:"img", md:"data:x"}, {t:"p", md:"本文"}] }) === "t  本文");
   T("仮想化カリング動作", () => { cullCards(); return typeof cullPending === "boolean"; });
   T("音声メモの停止機構", () => typeof stopVoice === "function" && toggleVoice.toString().includes("abort"));
+  T("メニューが外タップで閉じる", () => {
+    if (!state.notes.length) return true;
+    openCtx(20, 20, state.notes[0].id);
+    const vp2 = document.getElementById("viewport");
+    vp2.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 99, clientX: 5, clientY: 5, bubbles: true }));
+    const ok = document.getElementById("ctx").style.display === "none";
+    vp2.dispatchEvent(new PointerEvent("pointerup", { pointerId: 99, clientX: 5, clientY: 5, bubbles: true }));
+    closeCtx();
+    return ok;
+  });
+  T("空メモの自動掃除判定", () =>
+    isEmptyNote({ title:" ", blocks:[{t:"p",md:""},{t:"hr",md:""}] }) &&
+    !isEmptyNote({ title:"", blocks:[{t:"img",md:"data:x"}] }) &&
+    !isEmptyNote({ title:"タイトルあり", blocks:[] }));
   // --- 集計 ---
   const pass = res.filter(r => r.ok).length;
   openList(`🧪 セルフテスト: ${pass}/${res.length} 合格${pass === res.length ? " 🎉" : " ⚠️"}`,
@@ -3393,6 +3443,11 @@ function seed() {
   setTimeout(scanReminders, 3000);
   // あいことば設定済みなら自動でP2P接続
   if (state.room && navigator.onLine) setTimeout(() => joinRoom(state.room), 3500);
+  // スマホ初回だけ操作ヒント
+  if (IS_TOUCH && !state.mobHint) {
+    state.mobHint = 1; save();
+    setTimeout(() => toast("💡 空きスペースを長押し＝メモ作成 ／ カード上部を長押し＝メニュー"), 1600);
+  }
 
   // 毎朝のデイリーノート（今日の受け皿）
   ensureDailyNote();
