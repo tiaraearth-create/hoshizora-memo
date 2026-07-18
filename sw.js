@@ -1,5 +1,5 @@
 /* 星空メモ Service Worker — オフライン起動・キャッシュ・リマインダー通知 */
-const VER = "hoshizora-v4";
+const VER = "hoshizora-v5";
 const CORE = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", e => {
